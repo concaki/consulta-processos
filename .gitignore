@@ -1,0 +1,7 @@
+# chaves de API — nunca publicar
+.env
+
+__pycache__/
+*.pyc
+.venv/
+venv/

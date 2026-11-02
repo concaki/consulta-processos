@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consulta de Processos</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --tx:#1c2430; --mut:#677385; --ln:#e3e7ec; --ac:#1f5fbf; --warn:#fff6e0; --err:#fdecec; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12161c; --card:#1b2129; --tx:#e6ebf1; --mut:#97a3b3; --ln:#2b333e; --ac:#6ea4ff; --warn:#3a3220; --err:#3d2324; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--tx) }
+  main { max-width:900px; margin:0 auto; padding:24px 16px 60px }
+  h1 { font-size:22px; margin:0 0 4px } .sub { color:var(--mut); margin:0 0 18px }
+  form { display:flex; gap:8px }
+  input { flex:1; padding:12px 14px; font-size:16px; border:1px solid var(--ln); border-radius:10px; background:var(--card); color:var(--tx) }
+  button { padding:12px 18px; font-size:15px; border:0; border-radius:10px; background:var(--ac); color:#fff; cursor:pointer }
+  button:disabled { opacity:.6 }
+  .card { background:var(--card); border:1px solid var(--ln); border-radius:12px; padding:16px; margin-top:14px }
+  .card h2 { font-size:16px; margin:0 0 10px; display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap }
+  .tag { font-size:12px; color:var(--mut); font-weight:400 }
+  dl { display:grid; grid-template-columns:150px 1fr; gap:4px 12px; margin:0 }
+  dt { color:var(--mut) } dd { margin:0; word-break:break-word }
+  @media (max-width:560px){ dl { grid-template-columns:1fr } dt { margin-top:6px } }
+  .aviso { background:var(--warn); border-radius:10px; padding:10px 12px; margin-top:10px; font-size:14px }
+  .erro { background:var(--err) }
+  .tl { list-style:none; padding:0; margin:10px 0 0; border-left:2px solid var(--ln) }
+  .tl li { padding:4px 0 8px 14px; position:relative }
+  .tl li::before { content:""; position:absolute; left:-6px; top:10px; width:10px; height:10px; border-radius:50%; background:var(--ac) }
+  .tl time { color:var(--mut); font-size:13px; display:block }
+  .pub { border-top:1px solid var(--ln); padding:10px 0 }
+  .pub:first-of-type { border-top:0 }
+  .texto { color:var(--mut); font-size:14px; white-space:pre-wrap; max-height:4.5em; overflow:hidden }
+  .texto.aberto { max-height:none }
+  a, .link { color:var(--ac); cursor:pointer; text-decoration:none }
+  .chips span { display:inline-block; border:1px solid var(--ln); border-radius:20px; padding:2px 10px; margin:3px 4px 0 0; font-size:13px }
+  .spinner { color:var(--mut); margin-top:16px }
+  .resumo span.erro { background:var(--err); border-color:transparent }
+  .resumo span.alerta { background:var(--err); border-color:#d9534f }
+  .card-alerta { border-color:#d9534f }
+  .cab .tit { font-size:24px; line-height:1.25; margin:8px 0 4px }
+  .cab .tit .q { cursor:pointer } .cab .tit .q:hover, .polo .q:hover { color:var(--ac) }
+  .cab .x { color:var(--mut); font-weight:400; margin:0 4px }
+  .cab h3 { font-size:15px; margin:16px 0 6px; padding-top:12px; border-top:1px solid var(--ln) }
+  .polo { margin-top:8px } .polo .q { cursor:pointer }
+  .status { display:inline-block; font-size:12px; padding:2px 10px; border-radius:20px }
+  .st-ativo { background:#d6f5e3; color:#11623a } .st-parado { background:#fff1cc; color:#7a5800 }
+  .st-arq, .st-tj { background:#e6e9ee; color:#4a5463 }
+  @media (prefers-color-scheme: dark) { .st-ativo { background:#173d2a; color:#8fe0b2 } .st-parado { background:#3d3315; color:#f3d27a } .st-arq, .st-tj { background:#2b333e; color:#c3ccd8 } }
+  .doc { padding:2px 0 }
+  .botao { display:inline-block; margin-top:10px; padding:8px 14px; border:1px solid var(--ac); border-radius:8px; font-size:14px }
+  .botao:hover { background:var(--ac); color:#fff }
+  .chips .chip { cursor:pointer } .chips .chip:hover { border-color:var(--ac); color:var(--ac) }
+</style>
+</head>
+<body>
+<main>
+  <h1>Consulta de Processos</h1>
+  <p class="sub">Número CNJ, CNPJ, CPF ou nome. Fontes: DataJud, DJEN, Receita Federal, Querido Diário, Portal da Transparência e Escavador (opcional).</p>
+  <form id="f">
+    <input id="q" placeholder="Ex.: 0001234-56.2023.8.26.0100" autocomplete="off" required>
+    <button id="b">Buscar</button>
+  </form>
+  <div id="out"></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const data = s => { if (!s) return "—";
+  const so = String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/); if (so) return `${so[3]}/${so[2]}/${so[1]}`; /* data pura: evita voltar 1 dia por fuso */
+  const d = new Date(s); return isNaN(d) ? esc(s) : d.toLocaleDateString("pt-BR") + (String(s).includes("T") ? " " + d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}) : ""); };
+const linha = (k, v) => v ? `<dt>${k}</dt><dd>${v}</dd>` : "";
+
+async function buscar(q) {
+  $("#q").value = q; $("#b").disabled = true;
+  $("#out").innerHTML = `<p class="spinner">Consultando fontes… o DataJud pode levar até 1 minuto.</p>`;
+  try {
+    const r = await fetch("/api/buscar?q=" + encodeURIComponent(q));
+    render(await r.json());
+  } catch (e) {
+    $("#out").innerHTML = `<div class="aviso erro">Falha ao consultar o servidor: ${esc(e.message)}</div>`;
+  } finally { $("#b").disabled = false; }
+}
+
+let ultimo = null;
+
+function resumo(res) {
+  const chips = (res.resultados || []).filter(r => !r.links).map(r => {
+    const n = r.empresa ? "✓" : r.registros ? r.registros.length : r.publicacoes ? r.publicacoes.length : r.itens ? (r.total ?? r.itens.length) : "";
+    const cls = !r.ok ? "erro" : (r.fonte.includes("Transparência") && r.fonte.match(/CEIS|CNEP|CEPIM|Leniência/) && r.itens?.length) ? "alerta" : "";
+    return `<span class="${cls}" title="${esc(r.erro || "")}">${esc(r.fonte.replace(/^Portal da Transparência · /, ""))}: <b>${r.ok ? esc(n) : "falhou"}</b></span>`;
+  }).join("");
+  return chips ? `<div class="card"><h2>Resumo da busca <span class="tag">${esc(res.consulta)} · ${esc(res.tipo.toUpperCase())}
+    · <span class="link" onclick="exportar()">exportar JSON</span></span></h2><div class="chips resumo">${chips}</div></div>` : "";
+}
+
+function exportar() {
+  const blob = new Blob([JSON.stringify(ultimo, null, 2)], {type: "application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "consulta-" + (ultimo.consulta || "").replace(/\W+/g, "") + ".json";
+  a.click();
+}
+
+// ---------- utilitários de ligação ----------
+// Texto já escapado -> URLs viram links clicáveis
+const linkify = t => t.replace(/(https?:\/\/[^\s<>()"']+[^\s<>()"'.,;:])/g,
+  u => `<a href="${u}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${u}</a>`);
+// Elemento que dispara nova busca ao clicar (usa data-q para não quebrar com aspas no nome)
+const busca = (q, rotulo, cls = "link") => `<span class="${cls} q" data-q="${esc(q)}" title="Buscar outros processos de ${esc(q)}">${esc(rotulo ?? q)}</span>`;
+const titulo = s => String(s || "").toLowerCase().replace(/(^|\s|\/|-)(\p{L})/gu, (m, a, b) => a + b.toUpperCase())
+  .replace(/\b(Da|De|Do|Das|Dos|E|Ltda|S\/a|Me|Epp|Eireli)\b/g, w => ({Ltda:"Ltda", "S/a":"S/A", Me:"ME", Epp:"EPP", Eireli:"EIRELI"}[w] || w.toLowerCase()));
+
+function poloDe(p) {
+  const v = String(p || "").toUpperCase();
+  if (/^A|ATIV|AUTOR|RECLAMANTE|EXEQUENTE|REQUERENTE|IMPETRANTE|RECORRENTE/.test(v)) return "ativo";
+  if (/^P|PASSIV|R[ÉE]U|RECLAMAD|EXECUTAD|REQUERID|IMPETRAD|RECORRID/.test(v)) return "passivo";
+  return "outro";
+}
+
+function statusProcesso(registros) {
+  const movs = registros.flatMap(r => r.movimentos || []).filter(m => m.data)
+    .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  if (!movs.length) return null;
+  const ult = new Date(movs[0].data), dias = (Date.now() - ult) / 864e5;
+  const recentes = movs.slice(0, 3).map(m => m.nome || "").join(" | ");
+  if (/arquivad|baixa definitiva|baixado/i.test(recentes)) return {txt: "Arquivado", cls: "st-arq", ult};
+  if (movs.some(m => /tr[âa]nsito em julgado/i.test(m.nome || ""))) return {txt: "Transitado em julgado", cls: "st-tj", ult};
+  if (dias <= 180) return {txt: "Processo ativo", cls: "st-ativo", ult};
+  if (dias <= 730) return {txt: "Ativo · sem movimentação recente", cls: "st-parado", ult};
+  return {txt: "Possivelmente inativo", cls: "st-arq", ult};
+}
+
+// ---------- cabeçalho estilo "Autor × Réu" para busca por número ----------
+function cabecalho(res) {
+  const dj = (res.resultados || []).find(r => r.registros);
+  const djen = (res.resultados || []).find(r => r.publicacoes);
+  const regs = dj?.registros || [], pubs = djen?.publicacoes || [];
+  if (!regs.length && !pubs.length) return "";
+
+  const partes = new Map();
+  for (const p of pubs) for (const x of p.partes || []) if (x.nome && !partes.has(x.nome)) partes.set(x.nome, poloDe(x.polo));
+  const advs = new Map();
+  for (const p of pubs) for (const a of p.advogados || []) if (a.nome && !advs.has(a.nome)) advs.set(a.nome, a.oab);
+  const grupo = pol => [...partes].filter(([, p]) => p === pol).map(([n]) => n);
+  const ativos = grupo("ativo"), passivos = grupo("passivo"), outros = grupo("outro");
+
+  const r0 = regs.find(r => r.grau === "G1") || regs[0] || {};
+  const st = statusProcesso(regs);
+  const tit = ativos.length || passivos.length
+    ? `${ativos[0] ? busca(ativos[0], titulo(ativos[0]), "") : "?"} <span class="x">×</span> ${passivos[0] ? busca(passivos[0], titulo(passivos[0]), "") : "?"}`
+    : esc(r0.classe || "Processo");
+  const assunto = (r0.assuntos || []).join(" / ");
+  const lista = (rot, nomes) => nomes.length ? `<div class="polo"><div class="tag">${rot}</div>${nomes.map(n => `<div><b>${busca(n, titulo(n), "")}</b></div>`).join("")}</div>` : "";
+
+  return `<div class="card cab">
+    ${st ? `<span class="status ${st.cls}">${st.txt}</span>` : ""}
+    <h1 class="tit">${tit}</h1>
+    <div class="tag">Processo ${esc(res.consulta)}${r0.classe ? " · " + esc(r0.classe) : ""}</div>
+    <dl style="margin-top:12px">
+      ${linha("Origem", esc([dj?.tribunal || r0.tribunal, r0.orgao_julgador].filter(Boolean).join(" · ")))}
+      ${linha("Assunto", esc(assunto))}
+      ${linha("Ajuizamento", r0.data_ajuizamento ? data(r0.data_ajuizamento) : "")}
+      ${linha("Última movimentação", st ? data(st.ult.toISOString()) : "")}
+      ${linha("Graus no DataJud", esc(regs.map(r => r.grau).filter(Boolean).join(", ")))}
+    </dl>
+    ${partes.size || advs.size ? `<h3>Envolvidos</h3>
+      ${lista("Autor — Polo ativo", ativos)}${lista("Réu — Polo passivo", passivos)}${lista("Outros envolvidos", outros)}
+      ${advs.size ? `<div class="polo"><div class="tag">Advogados</div>${[...advs].map(([n, oab]) =>
+        `<div>${busca(n, titulo(n), "")} <span class="tag">OAB ${esc(oab)}</span></div>`).join("")}
+        <div class="tag" style="margin-top:4px">O DJEN não informa qual advogado representa cada parte.</div></div>` : ""}
+      <div class="tag" style="margin-top:8px">Clique em um nome para buscar outros processos dessa parte.</div>`
+      : `<div class="aviso">Partes não identificadas: este processo ainda não tem publicação no DJEN.</div>`}
+    ${documentos(regs, pubs, dj)}
+  </div>`;
+}
+
+// ---------- documentos juntados (tipos, a partir das movimentações do DataJud) ----------
+function documentos(regs, pubs, dj) {
+  const docs = [];
+  for (const r of regs) for (const m of r.movimentos || []) for (const d of m.documentos || [])
+    docs.push({data: m.data, tipo: d, mov: m.nome, grau: r.grau});
+  // remove repetidos (mesmo tipo no mesmo dia)
+  const vistos = new Set();
+  const lista = docs.filter(d => { const k = String(d.data).slice(0, 10) + "|" + d.tipo; return vistos.has(k) ? false : vistos.add(k); })
+    .sort((a, b) => String(b.data).localeCompare(String(a.data)));
+
+  // link para o processo no tribunal: consulta pública (PJe-JT) ou link citado nas publicações
+  const doTexto = pubs.map(p => (p.texto || "").match(/https?:\/\/pje[^\s<>()"']+/i)?.[0]).find(Boolean);
+  const pje = dj?.consulta_publica || doTexto || pubs.map(p => p.link).find(Boolean);
+
+  const porDia = {};
+  for (const d of lista) (porDia[String(d.data).slice(0, 10)] ??= []).push(d);
+  const blocos = Object.entries(porDia).map(([dia, ds]) => `<li><time>${data(dia)}</time>
+      ${ds.map(d => `<div class="doc">📄 ${esc(d.tipo)}${d.tipo !== d.mov ? ` <span class="tag">· ${esc(d.mov)}</span>` : ""}</div>`).join("")}</li>`).join("");
+
+  return `<h3>Documentos juntados <span class="tag">${lista.length ? lista.length + " encontrado(s) no DataJud" : ""}</span></h3>
+    ${lista.length ? `<ul class="tl">${blocos}</ul>`
+      : `<div class="tag">O tribunal não enviou ao DataJud os tipos dos documentos deste processo.</div>`}
+    <div class="tag" style="margin-top:8px">Os nomes dados aos arquivos e o conteúdo ficam no sistema do tribunal; documentos marcados como restritos só abrem para os advogados da causa.</div>
+    ${pje ? `<a class="botao" href="${esc(pje)}" target="_blank" rel="noopener">Ver lista completa no PJe do tribunal ↗</a>` : ""}`;
+}
+
+function render(res) {
+  ultimo = res;
+  let h = resumo(res) + (res.tipo === "cnj" ? cabecalho(res) : "") + (res.avisos || []).map(a => `<div class="aviso">${esc(a)}</div>`).join("");
+  for (const r of res.resultados || []) {
+    if (!r.ok) { h += `<div class="card"><h2>${esc(r.fonte)}</h2><div class="aviso erro">${esc(r.erro)}</div></div>`; continue; }
+    if (r.empresa) h += empresa(r);
+    if (r.registros) h += r.registros.length ? r.registros.map(p => processo(p, r.tribunal)).join("")
+      : `<div class="card"><h2>DataJud</h2>Nenhum registro público encontrado (pode estar em sigilo ou ainda não indexado).</div>`;
+    if (r.publicacoes) h += publicacoes(r, res.tipo);
+    if (r.itens) h += lista(r);
+    if (r.links) h += links(r);
+  }
+  $("#out").innerHTML = h || `<div class="aviso">Nada encontrado.</div>`;
+}
+
+function lista(r) {
+  const alerta = r.itens.length && /CEIS|CNEP|CEPIM|Leniência/.test(r.fonte);
+  let h = `<div class="card${alerta ? " card-alerta" : ""}"><h2>${esc(r.fonte)} <span class="tag">${r.total ?? r.itens.length} resultado(s)</span></h2>`;
+  if (r.nota) h += `<div class="tag">${esc(r.nota)}</div>`;
+  if (!r.itens.length) return h + `<div>${esc(r.vazio || "Nenhum resultado.")}</div></div>`;
+  const vis = 10, id = "l" + Math.random().toString(36).slice(2);
+  const item = i => `<div class="pub">
+      <div>${i.processo ? busca(i.processo, i.titulo) : `<b>${esc(i.titulo)}</b>`}
+        ${i.sub ? `<span class="tag"> · ${esc(i.sub)}</span>` : ""}</div>
+      ${Object.keys(i.campos || {}).length ? `<dl style="margin-top:6px">${Object.entries(i.campos).map(([k, v]) => linha(esc(k), esc(v))).join("")}</dl>` : ""}
+      ${i.texto ? `<div class="texto" onclick="this.classList.toggle('aberto')">${linkify(esc(i.texto))}</div>` : ""}
+      ${i.link ? `<a href="${esc(i.link)}" target="_blank" rel="noopener">Abrir documento</a>` : ""}
+    </div>`;
+  h += r.itens.slice(0, vis).map(item).join("");
+  if (r.itens.length > vis) h += `<div id="${id}" hidden>${r.itens.slice(vis).map(item).join("")}</div>
+    <span class="link" onclick="document.getElementById('${id}').hidden=false;this.remove()">Ver todos os ${r.itens.length}</span>`;
+  return h + "</div>";
+}
+
+function links(r) {
+  return `<div class="card"><h2>${esc(r.fonte)}</h2>${r.nota ? `<div class="tag" style="margin-bottom:6px">${esc(r.nota)}</div>` : ""}
+    <ul style="margin:0;padding-left:18px">${r.links.map(l => `<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.titulo)}</a></li>`).join("")}</ul></div>`;
+}
+
+function empresa(r) {
+  const e = r.empresa;
+  return `<div class="card"><h2>${esc(e.razao_social)} <span class="tag">${esc(r.fonte)}</span></h2><dl>
+    ${linha("CNPJ", esc(e.cnpj))}${linha("Nome fantasia", esc(e.nome_fantasia))}${linha("Situação", esc(e.situacao))}
+    ${linha("Abertura", data(e.abertura))}${linha("Natureza jurídica", esc(e.natureza_juridica))}${linha("Porte", esc(e.porte))}
+    ${linha("Capital social", e.capital_social != null ? Number(e.capital_social).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}) : "")}
+    ${linha("CNAE principal", esc(e.cnae_principal))}${linha("Município", esc(e.municipio_uf))}
+    ${linha("Sócios", e.socios?.length ? e.socios.map(s => `${esc(s.nome)} <span class="tag">(${esc(s.qualificacao)})</span>`).join("<br>") : "")}
+  </dl></div>`;
+}
+
+function processo(p, trib) {
+  const movs = p.movimentos || [], vis = 15;
+  const li = m => `<li><time>${data(m.data)}</time>${esc(m.nome)}${m.complementos?.filter(Boolean).length ? ` <span class="tag">— ${esc(m.complementos.filter(Boolean).join(", "))}</span>` : ""}</li>`;
+  const id = "m" + Math.random().toString(36).slice(2);
+  return `<div class="card"><h2>${esc(p.classe || "Processo")} <span class="tag">DataJud · ${esc(p.tribunal || trib)} · ${esc(p.grau)}</span></h2><dl>
+    ${linha("Órgão julgador", esc(p.orgao_julgador))}${linha("Assuntos", esc((p.assuntos||[]).join("; ")))}
+    ${linha("Ajuizamento", data(p.data_ajuizamento))}${linha("Sistema", esc([p.sistema, p.formato].filter(Boolean).join(" · ")))}
+    ${linha("Última atualização", data(p.ultima_atualizacao))}${linha("Movimentações", movs.length)}
+  </dl>
+  <ul class="tl">${movs.slice(0, vis).map(li).join("")}</ul>
+  ${movs.length > vis ? `<ul class="tl" id="${id}" hidden>${movs.slice(vis).map(li).join("")}</ul>
+    <span class="link" onclick="document.getElementById('${id}').hidden=false;this.remove()">Ver todas as ${movs.length} movimentações</span>` : ""}
+  </div>`;
+}
+
+function publicacoes(r, tipo) {
+  const pubs = r.publicacoes || [];
+  if (!pubs.length) return `<div class="card"><h2>Publicações (DJEN)</h2>Nenhuma publicação encontrada.</div>`;
+  // Agrupa por processo quando a busca é por nome/CNPJ
+  const grupos = {};
+  for (const p of pubs) (grupos[p.processo || "sem número"] ??= []).push(p);
+  const nGrupos = Object.keys(grupos).length;
+  let h = `<div class="card"><h2>Publicações (DJEN) <span class="tag">${pubs.length} publicação(ões) · ${nGrupos} processo(s)${r.parcial ? " · parcial" : ""}</span></h2>`;
+  for (const [proc, lista] of Object.entries(grupos)) {
+    const f = lista[0];
+    const partes = [...new Map(lista.flatMap(p => p.partes).map(x => [x.nome, x])).values()];
+    const advs = [...new Map(lista.flatMap(p => p.advogados).map(x => [x.nome, x])).values()];
+    h += `<div class="pub">
+      ${tipo !== "cnj" ? `<div>${busca(proc)} <span class="tag">${esc(f.tribunal)} · ${esc(f.classe)} · ${lista.length} publicação(ões)</span></div>` : ""}
+      ${tipo !== "cnj" && partes.length ? `<div class="chips">${partes.map(x => {
+          const pol = poloDe(x.polo); const rot = pol === "ativo" ? "autor" : pol === "passivo" ? "réu" : x.polo;
+          return busca(x.nome, titulo(x.nome) + (rot ? ` · ${rot}` : ""), "chip");
+        }).join("")}</div>` : ""}
+      ${tipo !== "cnj" && advs.length ? `<div class="tag" style="margin-top:4px">Advogados: ${advs.map(a => `${esc(a.nome)} (OAB ${esc(a.oab)})`).join("; ")}</div>` : ""}
+      ${lista.map(p => `<div style="margin-top:8px"><time class="tag">${data(p.data)} · ${esc(p.tipo)} · ${esc(p.orgao)}</time>
+        <div class="texto" onclick="this.classList.toggle('aberto')">${linkify(esc(p.texto))}</div>
+        ${p.link ? `<a href="${esc(p.link)}" target="_blank" rel="noopener">Abrir no tribunal</a>` : ""}</div>`).join("")}
+    </div>`;
+  }
+  return h + "</div>";
+}
+
+$("#f").addEventListener("submit", e => { e.preventDefault(); buscar($("#q").value.trim()); });
+// Clique em nome/processo -> nova busca
+$("#out").addEventListener("click", e => {
+  const el = e.target.closest?.(".q");
+  if (el) { e.stopPropagation(); window.scrollTo({top: 0, behavior: "smooth"}); buscar(el.dataset.q); }
+});
+</script>
+</body>
+</html>
